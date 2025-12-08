@@ -6,11 +6,12 @@ library(readxl)
 library(dataRetrieval) #this is the usgs package for getting up to date data
 library(writexl)
 
-# nearGranbyGageOldNWISInstant <- read_csv("Inputs/nearGranbyGageOldNWISInstant.csv")
+
+###NEAR GRANBY USGS GAGE INSTANT/CONTINOUS FALL 2025
 #can only get these fall dates, otherwise if you go back more than 120 days it will show up as "Ssn"
-#only works for isntant as well
+#only works for instant as well
+#https://waterdata.usgs.gov/nwis/uv?site_no=09019500&legacy=1
 fall2025nearGranbyGageNWISInstant <- read_csv("Inputs/fall2025nearGranbyGageNWISInstant.csv")
-WindyGapPumpingRecord <- read_csv("Inputs/WindyGapPumpingRecord.csv")
 
 fall2025nearGranbyGageNWISInstant1 <- fall2025nearGranbyGageNWISInstant %>%
   mutate(datetime = mdy_hm(datetime), 
@@ -18,21 +19,21 @@ fall2025nearGranbyGageNWISInstant1 <- fall2025nearGranbyGageNWISInstant %>%
   group_by(Date) %>%
   summarise(flowNearGRanbyNWISOld = mean(as.numeric(`60`), na.rm = TRUE))
 
-# nearGranbyGageOldNWISInstant1 <- nearGranbyGageOldNWISInstant %>%
-#   mutate(datetime = mdy_hm(datetime), 
-#          date = as.Date(datetime)) %>%
-#   group_by(date) %>%
-#   summarise(flowNearGRanbyNWISOld = mean(as.numeric(`60`), na.rm = TRUE))
-#assuming NA pumping values are not pumoping
+##WINDY GAP PUMPING RECORD
+#assuming NA pumping values are not pumping
 #only goers back to June 2021
+#this came from https://dwr.state.co.us/Tools/Stations/WGPPMPCO
+WindyGapPumpingRecord <- read_csv("Inputs/WindyGapPumpingRecord.csv")
+
 WindyGapPumpingRecord1 <- WindyGapPumpingRecord %>%
   mutate(Date = mdy(meas_date), 
          windyGapPumpingFLow = replace_na(as.numeric(`Streamflow Value`), 0)) %>%
   select(Date, windyGapPumpingFLow)
 
-#make function
+#DEFINE FUNCTION TO RETRIEVE AND FORMAT UP TO DATE USGS DATA FROM WEB
+#not all gages have temperature available so we had that as a parameter
 #"USGS-09034250", #code for windy gap
-codeID = "09019000"
+
 getDailyand15MinUSGSData <- function(codeID, startDate = "2020-08-06", endDate = Sys.Date(), waterTemp = TRUE) {
   ##windy gap/hitching post 
   #reading in USGS data with upt to date data
@@ -40,6 +41,8 @@ getDailyand15MinUSGSData <- function(codeID, startDate = "2020-08-06", endDate =
                                         parameter_code = c("00060", "00010"), #this is parameter codes for discharge and celsius water temp; more can be added if needed. https://help.waterdata.usgs.gov/codes-and-parameters/parameters
                                         time = c(startDate, endDate)
   )
+  #removes geometry so no longer sf object
+  #gets to desired wide format while applying "mean" function to the values
   USGSDataDaily <- USGSDataDaily %>%
     st_drop_geometry() %>%
     pivot_wider(id_cols = time, names_from = parameter_code, values_from = value, values_fn = ~ mean(.x, na.rm = TRUE)) %>%
@@ -94,10 +97,10 @@ belowGranbyDaily <- belowGranbyData$USGSDataDaily %>%
 
 nearGranbyData <- getDailyand15MinUSGSData("09019500") 
 nearGranby <- nearGranbyData$USGSData %>%
-  rename(`CR Near Lake Granby Flow` = Flow_Inst_cd)
+  rename(`CR Near Granby Flow` = Flow_Inst_cd)
 nearGranbyDaily <- nearGranbyData$USGSDataDaily %>%
   select(Date, Flow) %>%
-  rename(`CR Near Lake Granby Flow` = Flow)
+  rename(`CR Near Granby Flow` = Flow)
 
 #willow creek only has discharge, no temperature
 willowCreekData <- getDailyand15MinUSGSData("09021000", waterTemp = FALSE)
@@ -107,9 +110,12 @@ willowCreekDaily <- willowCreekData$USGSDataDaily %>%
   select(Date, Flow) %>%
   rename(`WC Below Res Flow` = Flow)
 
-#bring in fraer data to join
+#bring in fraser data to join
+#this sheet came from U drive, used to get fraser river only calcs
 WGFP_Hydrology_Qdaily_2020_to_2022 <- read_excel("Inputs/WGFP_Hydrology_Qdaily_2020_to_2022.xlsx", 
                                                  sheet = "data_all")
+#this sheet caem from https://dwr.state.co.us/Tools/Stations/FRAGRACO
+#the U drive sheet was probably gleaned from this but the u drive sheety has more data for the beginning of the study and this has mroe towards the end of the study
 fraserCDSS <- read_csv("Inputs/moreFraserFlows_CDSS.csv") %>%
   mutate(Date = mdy(meas_date), 
          FraserCDSSFlow = `Streamflow Value`) %>%
@@ -133,10 +139,8 @@ allDataDaily <- windyGapDaily %>%
   left_join(WindyGapPumpingRecord1, by = "Date")
 
 allDataDaily1 <- allDataDaily %>%
-  mutate(
-         
-         #granby difference in gages for all data
-         differenceCFSGranbyGages = `CR Near Lake Granby Flow` - `CR Below Lake Granby Flow`, 
+  mutate(#granby difference in gages for all data
+         differenceCFSGranbyGages = `CR Near Granby Flow` - `CR Below Lake Granby Flow`, 
          differencePercentGranbyGages = round((differenceCFSGranbyGages/`CR Below Lake Granby Flow`)*100, 2),
          
          #granby difference in gagews for fall 2025 instanteous data
@@ -145,9 +149,6 @@ allDataDaily1 <- allDataDaily %>%
          
          # comments = ifelse(is.na(windyGapPumpingFLow), "No Windy Gap Pumping Data Avaialble for this time period", "")
          )
-##differences between assumed fraser and actual for the data we have
-# mean(allDataDaily1$differenceFraserCFS, na.rm = T)
-# percentageDifFraser <- mean(allDataDaily1$differenceFraserPercent, na.rm = T)
 
 ###all differnece between granby gages
 mean(allDataDaily1$differenceCFSGranbyGages, na.rm = T)
@@ -168,7 +169,7 @@ allDataDaily2 <- allDataDaily1 %>%
   #if that's not avaialble, use the correction based off below lake granby gage; 
   ###NOT SURE IF WE WANT TO USE CORRECTION FOR ALL DATA (percentageChangeAllGranby, -1% ish) OR FOR JUST FALL 2025 (percentageChangeFall2025, 14%)
   #for now using percentageChangeFall2025
-  mutate(`Actual/Assumed UpperC Above WillowCreek Flow` = case_when(!is.na(`CR Near Lake Granby Flow`) ~ `CR Near Lake Granby Flow`, 
+  mutate(`Actual/Assumed UpperC Above WillowCreek Flow` = case_when(!is.na(`CR Near Granby Flow`) ~ `CR Near Granby Flow`, 
                                                        !is.na(`flowNearGRanbyNWISOld`) ~ `flowNearGRanbyNWISOld`, 
                                                        !is.na(`CR Below Lake Granby Flow`) ~ round(`CR Below Lake Granby Flow`*(1+(percentageChangeFall2025/100)), 2), 
                                                        TRUE ~ NA), 
@@ -180,12 +181,16 @@ allDataDaily2 <- allDataDaily1 %>%
          differenceFraserPercent = round((differenceFraserCFS/`Fraser Flow`)*100, 2)
          ) 
 
+
 allDataDaily3 <- allDataDaily2 %>%
   mutate(`Assumed/Actual Fraser Flow` = ifelse(!is.na(`Fraser Flow`), `Fraser Flow`, `Assumed Fraser Flow`)) %>%
   select(Date, `CR Below WG Flow`, `Assumed/Actual Fraser Flow`, `Assumed/Actual UpperC Flow`
          
          ) #`Assumed Fraser Flow`, `Actual FR Flow` = `Fraser Flow`,
 
+##differences between assumed fraser and actual for the data we have
+# mean(allDataDaily1$differenceFraserCFS, na.rm = T)
+# percentageDifFraser <- mean(allDataDaily1$differenceFraserPercent, na.rm = T)
 metadata <- tibble(
   variable = character(),
   description = character()
