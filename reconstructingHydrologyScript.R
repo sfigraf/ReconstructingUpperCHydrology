@@ -202,8 +202,8 @@ metadata1 <- metadata %>%
           ) %>%
   add_row(variable = "Assumed/Actual Fraser Flow", 
           description = "Used available data from gage FRAGRACO provided by Northern water to CDSS https://dwr.state.co.us/Tools/Stations/FRAGRACO. For data gaps, 
-          assumed Fraser Flow was calculated by subtracting 'Assumed/Actual Upper C Flow' from 'CR Below WG Flow' + 
-          'Windy gap pumping flow' (https://dwr.state.co.us/Tools/Stations/WGPPMPCO) "
+          assumed Fraser Flow was calculated by subtracting 'Assumed/Actual Upper C Flow' from 'CR Below WG Flow' + 'Windy gap pumping flow' (https://dwr.state.co.us/Tools/Stations/WGPPMPCO). 
+          No correction factor was used due to inconsistent pumping flows out of Windy Gap. "
   ) %>%
   add_row(variable = "Assumed/Actual UpperC Flow", 
           description = paste("USGS Gage below Willow Creek (Gage 09021000) added to 'Actual/Assumed UpperC Above Willow Creek Flow'. 'Assumed/Actual Flow near Granby' 
