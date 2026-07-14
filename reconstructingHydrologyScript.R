@@ -209,6 +209,7 @@ percentageChangeAllGranby <- mean(allDataDaily1$differencePercentGranbyGages, na
 ###So if we are going to extrapolate fall values, maybe it would make sense to add 8.8% more flow to the "below WG gage"
 #IMPORTANT: Even when new data is ran, the old data can change because of revisions from USGS since each time the script is run it gets data from the whole study period. 
 #so this means we can get a different corrective factor that is used for the assumed flow above willow creek when actual data from the gages aren't available
+#change in the corrective factor comes from fall 2025 data changes to 'CR Below Lake Granby' gage 
 mean(allDataDaily1$differenceCFSFall2025Granby, na.rm = T)
 percentageChangeFall2025 <- mean(allDataDaily1$differenceCFSFall2025Granbypercent, na.rm = T)
 
