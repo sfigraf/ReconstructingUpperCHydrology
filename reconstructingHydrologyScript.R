@@ -5,6 +5,7 @@ library(sf)
 library(readxl)
 library(dataRetrieval) #this is the usgs package for getting up to date data
 library(writexl)
+library(purrr)
 
 
 ###NEAR GRANBY USGS GAGE INSTANT/CONTINOUS FALL 2025
@@ -30,10 +31,10 @@ WindyGapPumpingRecord1 <- WindyGapPumpingRecord %>%
          windyGapPumpingFLow = replace_na(as.numeric(`Streamflow Value`), 0)) %>%
   select(Date, windyGapPumpingFLow)
 
-#DEFINE FUNCTION TO RETRIEVE AND FORMAT UP TO DATE USGS DATA FROM WEB
-#not all gages have temperature available so we had that as a parameter
+#DEFINE FUNCTION TO RETRIEVE AND FORMAT UP-TO-DATE USGS DATA FROM WEB
+#not all gages have temperature available so we have that as an optional argument
 #"USGS-09034250", #code for windy gap
-
+codeID = "09034250"
 getDailyand15MinUSGSData <- function(codeID, startDate = "2020-08-06", endDate = Sys.Date(), waterTemp = TRUE) {
   ##windy gap/hitching post 
   #reading in USGS data with upt to date data
@@ -58,20 +59,69 @@ getDailyand15MinUSGSData <- function(codeID, startDate = "2020-08-06", endDate =
   
   #sometimes this can fail if USGS is having issues on their end
   #maybe this function readNWISuv should be replaced with read_waterdata_latest_continuous but no error on that yet. monitor
-  USGSData <- readNWISuv(siteNumbers = codeID, #code for windy gap
-                         parameterCd = c("00060", "00010"), #this is parameter code for discharge; more can be added if needed
-                         startDate = startDate, #if you want to do times it is this format: "2014-10-10T00:00Z",
-                         endDate = endDate,
-                         tz = "America/Denver")
+  #sometimes this can fail if USGS is having issues on their end
+  ###since the new water data continupous only retunrs 3 year datasets, use this from purrr to combine it together
+  #Set up total date range, make sure it's in denver timezone or else we'll lose data when getting start/end dates for date chunks
+  ##same thing in windy gap app runscript
+  start_date <- as.POSIXct("2020-08-06 00:00:00", tz = "America/Denver")
+  end_date <- Sys.time()
   
-  USGSData <- renameNWISColumns(USGSData) 
+  # Create the sequence of start dates (every 2 years)
+  starts <- seq(from = start_date, to = end_date, by = "2 years")
+  
+  # Create the sequence of end dates
+  # take all the start dates (skipping the first one), subtract 1 day, 
+  # and then tack final end_date onto the very end.
+  ends <- c(starts[-1] - 1, end_date)
+  
+  #  Loop through the intervals, pull the data, and bind the rows together
+  #map2 = map over 2 vectors or lists in parrallel: starts and ends
+  #_dfr = return resultting in df by rows, not lists
+  continuousSiteData <- map2_dfr(
+    starts, # Start dates for each chunk
+    ends, # End dates for each chunk
+    #~ means make a anonmymous function
+    ~ read_waterdata_continuous(
+      monitoring_location_id = paste0("USGS-", codeID),
+      parameter_code = c("00060", "00010", "00065"),
+      time = c(as.character(.x), as.character(.y))
+    )
+  )
+  
+  continuousSiteData_wide <- continuousSiteData %>%
+    
+    # Translate the numeric codes into human-readable names
+    mutate(
+      parameter_code = replace_values(
+        parameter_code,
+        "00060" ~ "USGSDischarge",
+        "00010" ~ "USGSWatertemp",
+        "00065" ~ "USGSGageHeightFt"
+      )
+    ) %>%
+    # Pivot to wide format
+    pivot_wider(
+      id_cols = c(monitoring_location_id, time),
+      names_from = parameter_code,
+      values_from = value
+    )
+  USGSData <- continuousSiteData_wide %>%
+    #mutate(USGSWatertemp = (`USGSWatertemp` * 9/5) + 32) %>%
+    rename(dateTime = time)
+  # USGSData <- readNWISuv(siteNumbers = codeID, #code for windy gap
+  #                        parameterCd = c("00060", "00010"), #this is parameter code for discharge; more can be added if needed
+  #                        startDate = startDate, #if you want to do times it is this format: "2014-10-10T00:00Z",
+  #                        endDate = endDate,
+  #                        tz = "America/Denver")
+  
+  #USGSData <- renameNWISColumns(USGSData) 
   
   if(waterTemp){
     USGSData <- USGSData %>%
-      mutate(USGSWatertemp = (Wtemp_Inst * 9/5) + 32) 
+      mutate(USGSWatertemp = (USGSWatertemp * 9/5) + 32) 
   }
-  USGSData <- USGSData %>%
-    rename(USGSDischarge = Flow_Inst)
+  # USGSData <- USGSData %>%
+  #   rename(USGSDischarge = Flow_Inst)
   #this is to make attaching these readings to detections later
   USGSData$dateTime <- lubridate::force_tz(USGSData$dateTime, tzone = "UTC") 
   
@@ -83,21 +133,21 @@ getDailyand15MinUSGSData <- function(codeID, startDate = "2020-08-06", endDate =
 
 windayGpData <- getDailyand15MinUSGSData("09034250")
 windyGap <- windayGpData$USGSData %>%
-  rename(`CR Below WG Flow` = Flow_Inst_cd)
+  rename(`CR Below WG Flow` = USGSDischarge)
 windyGapDaily <- windayGpData$USGSDataDaily %>%
   select(Date, Flow) %>%
   rename(`CR Below WG Flow` = Flow)
 
 belowGranbyData <- getDailyand15MinUSGSData("09019000", waterTemp = FALSE)
 belowGranby <- belowGranbyData$USGSData %>%
-  rename(`CR Below Lake Granby Flow` = Flow_Inst_cd)
+  rename(`CR Below Lake Granby Flow` = USGSDischarge)
 belowGranbyDaily <- belowGranbyData$USGSDataDaily %>%
   select(Date, Flow) %>%
   rename(`CR Below Lake Granby Flow` = Flow)
 
 nearGranbyData <- getDailyand15MinUSGSData("09019500") 
 nearGranby <- nearGranbyData$USGSData %>%
-  rename(`CR Near Granby Flow` = Flow_Inst_cd)
+  rename(`CR Near Granby Flow` = USGSDischarge)
 nearGranbyDaily <- nearGranbyData$USGSDataDaily %>%
   select(Date, Flow) %>%
   rename(`CR Near Granby Flow` = Flow)
@@ -105,7 +155,7 @@ nearGranbyDaily <- nearGranbyData$USGSDataDaily %>%
 #willow creek only has discharge, no temperature
 willowCreekData <- getDailyand15MinUSGSData("09021000", waterTemp = FALSE)
 willowCreek <- willowCreekData$USGSData %>%
-  rename(`WC Below Res Flow` = Flow_Inst_cd)
+  rename(`WC Below Res Flow` = USGSDischarge)
 willowCreekDaily <- willowCreekData$USGSDataDaily %>%
   select(Date, Flow) %>%
   rename(`WC Below Res Flow` = Flow)
@@ -150,14 +200,15 @@ allDataDaily1 <- allDataDaily %>%
          # comments = ifelse(is.na(windyGapPumpingFLow), "No Windy Gap Pumping Data Avaialble for this time period", "")
          )
 
-###all differnece between granby gages
+###all difference between granby gages
 mean(allDataDaily1$differenceCFSGranbyGages, na.rm = T)
 percentageChangeAllGranby <- mean(allDataDaily1$differencePercentGranbyGages, na.rm = T)
 
-#for fall 2025, data is typically off only by 2 cfs, 
-# but that equates to an average of 14%
-###So if we are going to extrapolate fall values, maybe it would make sense to add 14% more flow to the "below WG gage"
-#for times when we use that
+#for fall 2025, data is typically off only by .5 cfs (on average; big std though), 
+# but that equates to an average of 8.8%
+###So if we are going to extrapolate fall values, maybe it would make sense to add 8.8% more flow to the "below WG gage"
+#IMPORTANT: Even when new data is ran, the old data can change because of revisions from USGS since each time the script is run it gets data from the whole study period. 
+#so this means we can get a different corrective factor that is used for the assumed flow above willow creek when actual data from the gages aren't available
 mean(allDataDaily1$differenceCFSFall2025Granby, na.rm = T)
 percentageChangeFall2025 <- mean(allDataDaily1$differenceCFSFall2025Granbypercent, na.rm = T)
 
@@ -166,8 +217,8 @@ granbygagesOveralppingDates <- allDataDaily1 %>%
 allDataDaily2 <- allDataDaily1 %>%
   #if data is available for the near granby gagae, use that bc it's most treliable before adding into willow creek
   #if that's not available, use the isntanteous flow from the legacy site (only available fall 2025)
-  #if that's not avaialble, use the correction based off below lake granby gage; 
-  ###NOT SURE IF WE WANT TO USE CORRECTION FOR ALL DATA (percentageChangeAllGranby, -1% ish) OR FOR JUST FALL 2025 (percentageChangeFall2025, 14%)
+  #if that's not avaialble, use the correction based off below lake granby gage; see above for chagnign correction caveat
+  ###NOT SURE IF WE WANT TO USE CORRECTION FOR ALL DATA (percentageChangeAllGranby, -1% ish) OR FOR JUST FALL 2025 (percentageChangeFall2025, 8.8%)
   #for now using percentageChangeFall2025
   mutate(`Actual/Assumed UpperC Above WillowCreek Flow` = case_when(!is.na(`CR Near Granby Flow`) ~ `CR Near Granby Flow`, 
                                                        !is.na(`flowNearGRanbyNWISOld`) ~ `flowNearGRanbyNWISOld`, 
@@ -218,6 +269,6 @@ metadata1 <- metadata %>%
 allFiles <- list("Metadata" = metadata1,
                  "Assumed and Actual Flow Data" = allDataDaily3, 
                  "AllData" = allDataDaily2)
-write_xlsx(allFiles, "Outputs/reconstructedWGFPDailyFlow.xlsx") 
+write_xlsx(allFiles, paste0("Outputs/reconstructedWGFPDailyFlow_", Sys.Date(), ".xlsx")) 
 #write_csv(allDataDaily2, "Outputs/reconstructedHydrology.csv")
 #summary(allDataDaily2$difference)
