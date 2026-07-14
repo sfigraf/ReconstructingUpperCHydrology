@@ -34,7 +34,6 @@ WindyGapPumpingRecord1 <- WindyGapPumpingRecord %>%
 #DEFINE FUNCTION TO RETRIEVE AND FORMAT UP-TO-DATE USGS DATA FROM WEB
 #not all gages have temperature available so we have that as an optional argument
 #"USGS-09034250", #code for windy gap
-codeID = "09034250"
 getDailyand15MinUSGSData <- function(codeID, startDate = "2020-08-06", endDate = Sys.Date(), waterTemp = TRUE) {
   ##windy gap/hitching post 
   #reading in USGS data with upt to date data
@@ -56,9 +55,7 @@ getDailyand15MinUSGSData <- function(codeID, startDate = "2020-08-06", endDate =
     USGSDataDaily <- USGSDataDaily %>%
       mutate(WtempF = (tempC * 9/5) + 32)
   }
-  
-  #sometimes this can fail if USGS is having issues on their end
-  #maybe this function readNWISuv should be replaced with read_waterdata_latest_continuous but no error on that yet. monitor
+
   #sometimes this can fail if USGS is having issues on their end
   ###since the new water data continupous only retunrs 3 year datasets, use this from purrr to combine it together
   #Set up total date range, make sure it's in denver timezone or else we'll lose data when getting start/end dates for date chunks
@@ -106,23 +103,13 @@ getDailyand15MinUSGSData <- function(codeID, startDate = "2020-08-06", endDate =
       values_from = value
     )
   USGSData <- continuousSiteData_wide %>%
-    #mutate(USGSWatertemp = (`USGSWatertemp` * 9/5) + 32) %>%
     rename(dateTime = time)
-  # USGSData <- readNWISuv(siteNumbers = codeID, #code for windy gap
-  #                        parameterCd = c("00060", "00010"), #this is parameter code for discharge; more can be added if needed
-  #                        startDate = startDate, #if you want to do times it is this format: "2014-10-10T00:00Z",
-  #                        endDate = endDate,
-  #                        tz = "America/Denver")
-  
-  #USGSData <- renameNWISColumns(USGSData) 
   
   if(waterTemp){
     USGSData <- USGSData %>%
       mutate(USGSWatertemp = (USGSWatertemp * 9/5) + 32) 
   }
-  # USGSData <- USGSData %>%
-  #   rename(USGSDischarge = Flow_Inst)
-  #this is to make attaching these readings to detections later
+
   USGSData$dateTime <- lubridate::force_tz(USGSData$dateTime, tzone = "UTC") 
   
   return(list("USGSData" = USGSData, 
